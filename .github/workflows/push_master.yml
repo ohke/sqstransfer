@@ -44,7 +44,7 @@ jobs:
 
     - name: Install openssl on Linux
       if: runner.os == 'Linux'
-      run: sudo apt install -y libssl-dev
+      run: apt update && apt install -y libssl-dev pkg-config
     - name: Setup toolchain
       uses: actions-rs/toolchain@v1
       with:
