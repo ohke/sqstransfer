@@ -10,8 +10,11 @@ jobs:
       matrix:
         target:
           - x86_64-unknown-linux-gnu
+          - x86_64-pc-windows-gnu
         include:
           - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-pc-windows-gnu
             os: ubuntu-latest
 
     runs-on: ${{ matrix.os }}
@@ -41,13 +44,24 @@ jobs:
       with:
         toolchain: stable
         override: true
-    - name: Cross build
+    - name: Cross build (Linux)
+      if: runner.target == 'x86_64-unknown-linux-gnu'
       env:
         PKG_CONFIG_ALLOW_CROSS: 1
       uses: actions-rs/cargo@v1
       with:
         command: build
         args: --release --target=${{ matrix.target }}
+    - name: Cross build (Windows)
+      if: runner.target == 'x86_64-pc-windows-gnu'
+      env:
+        PKG_CONFIG_ALLOW_CROSS: 1
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+        args: --release --target=${{ matrix.target }}
+      use-cross: true
+
     - name: Compress
       run: zip --junk-paths sqstransfer-${{ matrix.target }} target/${{ matrix.target }}/release/sqstransfer{,.exe}
     - name: Upload
