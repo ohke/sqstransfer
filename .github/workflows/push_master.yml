@@ -72,3 +72,19 @@ jobs:
       with:
         name: build-x86_64-pc-windows-gnu
         path: sqstransfer-x86_64-pc-windows-gnu.zip
+
+    - name: Cross build (MacOS)
+      env:
+        PKG_CONFIG_ALLOW_CROSS: 1
+      uses: actions-rs/cargo@v1
+      with:
+        command: build
+        args: --release --target=x86_64-apple-darwin
+        use-cross: true
+    - name: Compress (MacOS)
+      run: zip --junk-paths sqstransfer-x86_64-apple-darwin target/x86_64-apple-darwin/release/sqstransfer
+    - name: Upload (MacOS)
+      uses: actions/upload-artifact@v1
+      with:
+        name: build-x86_64-apple-darwin
+        path: sqstransfer-x86_64-apple-darwin.zip
