@@ -10,9 +10,12 @@ jobs:
       matrix:
         target:
           - x86_64-unknown-linux-gnu
+          - x86_64-apple-darwin
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
 
     runs-on: ${{ matrix.os }}
     
@@ -46,6 +49,7 @@ jobs:
       uses: mxschmitt/action-tmate@v1
 
     - name: Cross build (Linux)
+      if: runner.os == 'Linux'
       env:
         PKG_CONFIG_ALLOW_CROSS: 1
       uses: actions-rs/cargo@v1
@@ -53,14 +57,17 @@ jobs:
         command: build
         args: --release --target=x86_64-unknown-linux-gnu
     - name: Compress (Linux)
+      if: runner.os == 'Linux'
       run: zip --junk-paths sqstransfer-x86_64-unknown-linux-gnu target/x86_64-unknown-linux-gnu/release/sqstransfer
     - name: Upload (Linux)
+      if: runner.os == 'Linux'
       uses: actions/upload-artifact@v1
       with:
         name: build-${{ matrix.target }}
         path: sqstransfer-${{ matrix.target }}.zip
 
     - name: Cross build (Windows)
+      if: runner.os == 'Linux'
       env:
         PKG_CONFIG_ALLOW_CROSS: 1
       uses: actions-rs/cargo@v1
@@ -69,14 +76,17 @@ jobs:
         args: --release --target=x86_64-pc-windows-gnu
         use-cross: true
     - name: Compress (Windows)
+      if: runner.os == 'Linux'
       run: zip --junk-paths sqstransfer-x86_64-pc-windows-gnu target/x86_64-pc-windows-gnu/release/sqstransfer.exe
     - name: Upload (Windows)
+      if: runner.os == 'Linux'
       uses: actions/upload-artifact@v1
       with:
         name: build-x86_64-pc-windows-gnu
         path: sqstransfer-x86_64-pc-windows-gnu.zip
 
     - name: Cross build (MacOS)
+      if: runner.os == 'macOS'
       env:
         PKG_CONFIG_ALLOW_CROSS: 1
       uses: actions-rs/cargo@v1
@@ -85,8 +95,10 @@ jobs:
         args: --release --target=x86_64-apple-darwin
         use-cross: true
     - name: Compress (MacOS)
+      if: runner.os == 'macOS'
       run: zip --junk-paths sqstransfer-x86_64-apple-darwin target/x86_64-apple-darwin/release/sqstransfer
     - name: Upload (MacOS)
+      if: runner.os == 'macOS'
       uses: actions/upload-artifact@v1
       with:
         name: build-x86_64-apple-darwin
