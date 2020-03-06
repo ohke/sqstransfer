@@ -60,7 +60,7 @@ jobs:
       with:
         command: build
         args: --release --target=${{ matrix.target }}
-      use-cross: true
+        use-cross: true
 
     - name: Compress
       run: zip --junk-paths sqstransfer-${{ matrix.target }} target/${{ matrix.target }}/release/sqstransfer{,.exe}
