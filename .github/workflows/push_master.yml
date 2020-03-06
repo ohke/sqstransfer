@@ -41,13 +41,22 @@ jobs:
       with:
         toolchain: stable
         override: true
+
     - name: Cross build (Linux)
       env:
         PKG_CONFIG_ALLOW_CROSS: 1
       uses: actions-rs/cargo@v1
       with:
         command: build
-        args: --release --target=${{ matrix.target }}
+        args: --release --target=x86_64-unknown-linux-gnu
+    - name: Compress (Linux)
+      run: zip --junk-paths sqstransfer-x86_64-unknown-linux-gnu target/x86_64-unknown-linux-gnu/release/sqstransfer
+    - name: Upload (Linux)
+      uses: actions/upload-artifact@v1
+      with:
+        name: build-${{ matrix.target }}
+        path: sqstransfer-${{ matrix.target }}.zip
+
     - name: Cross build (Windows)
       env:
         PKG_CONFIG_ALLOW_CROSS: 1
@@ -56,11 +65,10 @@ jobs:
         command: build
         args: --release --target=x86_64-pc-windows-gnu
         use-cross: true
-
-    - name: Compress
-      run: zip --junk-paths sqstransfer-${{ matrix.target }} target/${{ matrix.target }}/release/sqstransfer{,.exe}
-    - name: Upload
+    - name: Compress (Windows)
+      run: zip --junk-paths sqstransfer-x86_64-pc-windows-gnu target/x86_64-pc-windows-gnu/release/sqstransfer.exe
+    - name: Upload (Windows)
       uses: actions/upload-artifact@v1
       with:
-        name: build-${{ matrix.target }}
-        path: sqstransfer-${{ matrix.target }}.zip
+        name: build-x86_64-pc-windows-gnu
+        path: sqstransfer-x86_64-pc-windows-gnu.zip
