@@ -9,9 +9,9 @@ jobs:
     strategy:
       matrix:
         target:
-          - x86_64-unknown-linux-musl
+          - x86_64-unknown-linux-gnu
         include:
-          - target: x86_64-unknown-linux-musl
+          - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
 
     runs-on: ${{ matrix.os }}
@@ -36,11 +36,6 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Install openssl on Linux
-      if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update -y
-        sudo apt-get install --reinstall -y pkg-config libssl-dev
     - name: Setup toolchain
       uses: actions-rs/toolchain@v1
       with:
@@ -55,7 +50,6 @@ jobs:
       with:
         command: build
         args: --release --target=${{ matrix.target }}
-        use-cross: true
     - name: Compress
       run: zip --junk-paths sqstransfer-${{ matrix.target }} target/${{ matrix.target }}/release/sqstransfer{,.exe}
     - name: Upload
