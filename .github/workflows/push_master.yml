@@ -41,8 +41,6 @@ jobs:
       with:
         toolchain: stable
         override: true
-    - name: Setup tmate session
-      uses: mxschmitt/action-tmate@v1
     - name: Cross build
       env:
         PKG_CONFIG_ALLOW_CROSS: 1
