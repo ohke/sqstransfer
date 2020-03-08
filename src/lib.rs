@@ -214,10 +214,7 @@ fn transfer_message(client: &SqsClient, source: &str, destination: &str) -> Resu
     if messages.len() >= 1 {
         if destination != "" {
             let handles = enqueue(client, &messages, destination)?;
-            match delete(client, &handles, source) {
-                Ok(()) => (),
-                Err(error_message) => eprintln!("Failed to delete messages: {}", error_message),
-            }
+            delete(client, &handles, source)?;
         } else {
             let mut handles: Vec<String> = vec![];
             for message in &messages {
@@ -227,10 +224,7 @@ fn transfer_message(client: &SqsClient, source: &str, destination: &str) -> Resu
                 });
             }
 
-            match delete(client, &handles, source) {
-                Ok(()) => (),
-                Err(error_message) => eprintln!("Failed to delete messages: {}", error_message),
-            };
+            delete(client, &handles, source)?;
         }
     }
 
@@ -307,7 +301,7 @@ fn enqueue(client: &SqsClient, messages: &Vec<Message>, destination: &str) -> Re
     }
 }
 
-fn delete(client: &SqsClient, handles: &Vec<String>, source: &str) -> Result<(), String> {
+fn delete(client: &SqsClient, handles: &Vec<String>, source: &str) -> Result<(), TransfererError> {
     let mut entries: Vec<DeleteMessageBatchRequestEntry> = vec![];
     
     for (i, handle) in handles.iter().enumerate() {
@@ -317,12 +311,15 @@ fn delete(client: &SqsClient, handles: &Vec<String>, source: &str) -> Result<(),
         });
     }
 
-    let _result = client.delete_message_batch(DeleteMessageBatchRequest {
+    match client.delete_message_batch(DeleteMessageBatchRequest {
         queue_url: source.to_string(),
         entries,
     })
-    .sync()
-    .expect("Failed to delete message.");
-
-    Ok(())
+    .sync() {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!("Delete error: {:?}", e);
+            Err(TransfererError::Delete)
+        }
+    }
 }
