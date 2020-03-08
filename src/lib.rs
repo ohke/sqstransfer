@@ -116,6 +116,13 @@ struct Transferer {
     senders: Vec<mpsc::Sender<Command>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum TransfererError {
+    Dequeue,
+    Enqueue,
+    Delete,
+}
+
 enum Command {
     Terminate,
 }
@@ -127,7 +134,7 @@ impl Transferer {
 
         let region: rusoto_core::Region = match region.parse() {
             Ok(region) => region,
-            Err(e) => {
+            Err(_) => {
                 eprintln!("Invalid region identifier: {}", region);
                 process::exit(1);
             }
@@ -150,7 +157,13 @@ impl Transferer {
                         break;
                     }
 
-                    let n = transfer_message(&client, &source, &destination);
+                    let n = match transfer_message(&client, &source, &destination) {
+                        Ok(n) => n,
+                        Err(_) => {
+                            break;
+                        },
+                    };
+
                     if n <= 0 {
                         break;
                     }
@@ -194,9 +207,9 @@ impl Drop for Transferer {
     }
 }
 
-fn transfer_message(client: &SqsClient, source: &str, destination: &str) -> usize {
-    let messages = dequeue(client, source);
-    
+fn transfer_message(client: &SqsClient, source: &str, destination: &str) -> Result<usize, TransfererError> {
+    let messages = dequeue(client, source)?;
+
     if messages.len() >= 1 {
         if destination != "" {
             match enqueue(client, &messages, destination) {
@@ -222,23 +235,25 @@ fn transfer_message(client: &SqsClient, source: &str, destination: &str) -> usiz
         }
     }
 
-    messages.len()
+    Ok(messages.len())
 }
 
-fn dequeue(client: &SqsClient, source: &str) -> Vec<Message> {
-    let result = client.receive_message(ReceiveMessageRequest {
+fn dequeue(client: &SqsClient, source: &str) -> Result<Vec<Message>, TransfererError> {
+    match client.receive_message(ReceiveMessageRequest {
         queue_url: source.to_string(),
         max_number_of_messages: Some(10),
         // TODO: https://github.com/rusoto/rusoto/issues/1444 (rusoto 0.44~)
         // message_attribute_names: Some(vec!["key.*".to_string()]),
         ..Default::default()
-    })
-    .sync()
-    .expect("Failed to dequeue messages.");
-
-    match result.messages {
-        Some(messages) => messages,
-        None => vec![],
+    }).sync() {
+        Ok(result) => Ok(match result.messages {
+            Some(messages) => messages,
+            None => vec![],
+        }),
+        Err(e) => {
+            eprintln!("Dequeue error: {:?}", e);
+            Err(TransfererError::Dequeue)
+        }
     }
 }
 
