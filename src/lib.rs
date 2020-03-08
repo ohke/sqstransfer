@@ -125,18 +125,18 @@ impl Transferer {
         let mut handles = vec![];
         let mut senders = vec![];
 
+        let client = SqsClient::new(region.parse().unwrap());
+
         for _ in 0..threads {
             let source = source.to_string();
             let destination = destination.to_string();
-            let region = region.to_string();
+            let client = client.clone();
 
             let (sender, receiver) = mpsc::channel();
             senders.push(sender);
 
             let handle = thread::spawn(move || {
                 // TODO: async/await (rusoto 0.43.0~)
-                let client = SqsClient::new(region.parse().unwrap());
-
                 let mut message_count :usize = 0;
                 loop {
                     if receiver.try_recv().is_ok() {
