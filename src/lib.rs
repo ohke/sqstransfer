@@ -1,6 +1,7 @@
 extern crate clap;
 
 use std::{thread, env, fmt, process};
+use std::collections::HashMap;
 use std::sync::{mpsc};
 use clap::{App, Arg};
 use rusoto_sqs::{
@@ -9,7 +10,6 @@ use rusoto_sqs::{
     DeleteMessageBatchRequest, DeleteMessageBatchRequestEntry
 };
 use std::thread::JoinHandle;
-use std::sync::mpsc::Sender;
 
 pub struct Config {
     source: String,
@@ -114,10 +114,17 @@ pub fn run(config: &Config) {
 
 struct Transferer {
     handles: Vec<Option<JoinHandle<usize>>>,
-    senders: Vec<mpsc::Sender<Command>>,
+    senders: Vec<mpsc::Sender<TransfererCommand>>,
 }
 
-enum Command {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum TransfererError {
+    Dequeue,
+    Enqueue,
+    Delete,
+}
+
+enum TransfererCommand {
     Terminate,
 }
 
@@ -126,28 +133,45 @@ impl Transferer {
         let mut handles = vec![];
         let mut senders = vec![];
 
+        let region: rusoto_core::Region = match region.parse() {
+            Ok(region) => region,
+            Err(_) => {
+                eprintln!("Invalid region identifier: {}", region);
+                process::exit(1);
+            }
+        };
+        let client = SqsClient::new(region);
+
         for _ in 0..threads {
             let source = source.to_string();
             let destination = destination.to_string();
-            let region = region.to_string();
+            let client = client.clone();
 
             let (sender, receiver) = mpsc::channel();
             senders.push(sender);
 
             let handle = thread::spawn(move || {
                 // TODO: async/await (rusoto 0.43.0~)
-                let client = SqsClient::new(region.parse().unwrap());
-
                 let mut message_count :usize = 0;
                 loop {
-                    if receiver.try_recv().is_ok() {
-                        break;
+                    match receiver.try_recv() {
+                        Ok(TransfererCommand::Terminate) => {
+                            break;
+                        },
+                        _ => {}
                     }
 
-                    let n = transfer_message(&client, &source, &destination);
+                    let n = match transfer_message(&client, &source, &destination) {
+                        Ok(n) => n,
+                        Err(_) => {
+                            break;
+                        },
+                    };
+
                     if n <= 0 {
                         break;
                     }
+
                     message_count += n;
                 }
 
@@ -177,7 +201,7 @@ impl Transferer {
 impl Drop for Transferer {
     fn drop(&mut self) {
         for sender in &mut self.senders {
-            sender.send(Command::Terminate);
+            let _ = sender.send(TransfererCommand::Terminate);
         }
 
         (&mut self.handles).into_iter().for_each(|h| {
@@ -188,18 +212,13 @@ impl Drop for Transferer {
     }
 }
 
-fn transfer_message(client: &SqsClient, source: &str, destination: &str) -> usize {
-    let messages = dequeue(client, source);
-    
+fn transfer_message(client: &SqsClient, source: &str, destination: &str) -> Result<usize, TransfererError> {
+    let messages = dequeue(client, source)?;
+
     if messages.len() >= 1 {
         if destination != "" {
-            match enqueue(client, &messages, destination) {
-                Ok(handles) => match delete(client, &handles, source) {
-                    Ok(()) => (),
-                    Err(error_message) => eprintln!("Failed to delete messages: {}", error_message),
-                },
-                Err(error_message) => eprintln!("Failed to enqueue messages: {}", error_message),
-            };
+            let handles = enqueue(client, &messages, destination)?;
+            delete(client, &handles, source)?;
         } else {
             let mut handles: Vec<String> = vec![];
             for message in &messages {
@@ -209,36 +228,35 @@ fn transfer_message(client: &SqsClient, source: &str, destination: &str) -> usiz
                 });
             }
 
-            match delete(client, &handles, source) {
-                Ok(()) => (),
-                Err(error_message) => eprintln!("Failed to delete messages: {}", error_message),
-            };
+            delete(client, &handles, source)?;
         }
     }
 
-    messages.len()
+    Ok(messages.len())
 }
 
-fn dequeue(client: &SqsClient, source: &str) -> Vec<Message> {
-    let result = client.receive_message(ReceiveMessageRequest {
+fn dequeue(client: &SqsClient, source: &str) -> Result<Vec<Message>, TransfererError> {
+    match client.receive_message(ReceiveMessageRequest {
         queue_url: source.to_string(),
         max_number_of_messages: Some(10),
         // TODO: https://github.com/rusoto/rusoto/issues/1444 (rusoto 0.44~)
         // message_attribute_names: Some(vec!["key.*".to_string()]),
         ..Default::default()
-    })
-    .sync()
-    .expect("Failed to dequeue messages.");
-
-    match result.messages {
-        Some(messages) => messages,
-        None => vec![],
+    }).sync() {
+        Ok(result) => Ok(match result.messages {
+            Some(messages) => messages,
+            None => vec![],
+        }),
+        Err(e) => {
+            eprintln!("Dequeue error: {:?}", e);
+            Err(TransfererError::Dequeue)
+        }
     }
 }
 
-fn enqueue(client: &SqsClient, messages: &Vec<Message>, destination: &str) -> Result<Vec<String>, String> {
+fn enqueue(client: &SqsClient, messages: &Vec<Message>, destination: &str) -> Result<Vec<String>, TransfererError> {
     let mut entries: Vec<SendMessageBatchRequestEntry> = vec![];
-    let mut handles: Vec<String> = vec![];
+    let mut handle_map = HashMap::new();
 
     for (i, message) in messages.iter().enumerate() {
         entries.push(SendMessageBatchRequestEntry {
@@ -254,23 +272,40 @@ fn enqueue(client: &SqsClient, messages: &Vec<Message>, destination: &str) -> Re
             ..Default::default()
         });
 
-        handles.push(match &message.receipt_handle {
+        handle_map.insert(i.to_string(), match &message.receipt_handle {
             Some(receipt_handle) => receipt_handle.to_string(),
-            None => "".to_string(),
+            None => {
+                eprintln!("Enqueue error: be able to get `ReceiptHandle`.");
+                return Err(TransfererError::Enqueue);
+            }
         });
     }
 
-    let _result = client.send_message_batch(SendMessageBatchRequest {
+    match client.send_message_batch(SendMessageBatchRequest {
         queue_url: destination.to_string(),
         entries,
     })
-    .sync()
-    .expect("Failed to send message.");
+    .sync() {
+        Ok(result) => {
+            for f in result.failed {
+                handle_map.remove(&f.id);
+            }
 
-    Ok(handles)
+            let mut handles = vec![];
+            for (_, v) in handle_map.iter() {
+                handles.push(v.to_string());
+            }
+
+            Ok(handles)
+        },
+        Err(e) => {
+            eprintln!("Enqueue error: {:?}", e);
+            Err(TransfererError::Enqueue)
+        }
+    }
 }
 
-fn delete(client: &SqsClient, handles: &Vec<String>, source: &str) -> Result<(), String> {
+fn delete(client: &SqsClient, handles: &Vec<String>, source: &str) -> Result<(), TransfererError> {
     let mut entries: Vec<DeleteMessageBatchRequestEntry> = vec![];
     
     for (i, handle) in handles.iter().enumerate() {
@@ -280,12 +315,15 @@ fn delete(client: &SqsClient, handles: &Vec<String>, source: &str) -> Result<(),
         });
     }
 
-    let _result = client.delete_message_batch(DeleteMessageBatchRequest {
+    match client.delete_message_batch(DeleteMessageBatchRequest {
         queue_url: source.to_string(),
         entries,
     })
-    .sync()
-    .expect("Failed to delete message.");
-
-    Ok(())
+    .sync() {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!("Delete error: {:?}", e);
+            Err(TransfererError::Delete)
+        }
+    }
 }

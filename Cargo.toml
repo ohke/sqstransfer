@@ -1,10 +1,17 @@
 [package]
 name = "sqstransfer"
 version = "0.1.0"
-authors = ["ohke <kenta1988@gmail.com>"]
+authors = ["Kenta Onishi <kenta1988@gmail.com>"]
 edition = "2018"
+description = "CLI tool that transfers Amazon SQS messages to another SQS."
+keywords = ["AWS", "SQS"]
+categories = ["command-line-interface", "command-line-utilities"]
+repository = "https://github.com/ohke/sqstransfer"
+readme = "README.md"
+license = "MIT"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[badges]
+maintenance = { status = "actively-developed" }
 
 [dependencies]
 clap = "2.33.0"
