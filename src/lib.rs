@@ -9,7 +9,6 @@ use rusoto_sqs::{
     DeleteMessageBatchRequest, DeleteMessageBatchRequestEntry
 };
 use std::thread::JoinHandle;
-use std::sync::mpsc::Sender;
 
 pub struct Config {
     source: String,
@@ -177,7 +176,7 @@ impl Transferer {
 impl Drop for Transferer {
     fn drop(&mut self) {
         for sender in &mut self.senders {
-            sender.send(Command::Terminate);
+            let _ = sender.send(Command::Terminate);
         }
 
         (&mut self.handles).into_iter().for_each(|h| {
