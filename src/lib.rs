@@ -1,6 +1,7 @@
 extern crate clap;
 
 use std::{thread, env, fmt, process};
+use std::collections::HashMap;
 use std::sync::{mpsc};
 use clap::{App, Arg};
 use rusoto_sqs::{
@@ -212,13 +213,11 @@ fn transfer_message(client: &SqsClient, source: &str, destination: &str) -> Resu
 
     if messages.len() >= 1 {
         if destination != "" {
-            match enqueue(client, &messages, destination) {
-                Ok(handles) => match delete(client, &handles, source) {
-                    Ok(()) => (),
-                    Err(error_message) => eprintln!("Failed to delete messages: {}", error_message),
-                },
-                Err(error_message) => eprintln!("Failed to enqueue messages: {}", error_message),
-            };
+            let handles = enqueue(client, &messages, destination)?;
+            match delete(client, &handles, source) {
+                Ok(()) => (),
+                Err(error_message) => eprintln!("Failed to delete messages: {}", error_message),
+            }
         } else {
             let mut handles: Vec<String> = vec![];
             for message in &messages {
@@ -257,9 +256,9 @@ fn dequeue(client: &SqsClient, source: &str) -> Result<Vec<Message>, TransfererE
     }
 }
 
-fn enqueue(client: &SqsClient, messages: &Vec<Message>, destination: &str) -> Result<Vec<String>, String> {
+fn enqueue(client: &SqsClient, messages: &Vec<Message>, destination: &str) -> Result<Vec<String>, TransfererError> {
     let mut entries: Vec<SendMessageBatchRequestEntry> = vec![];
-    let mut handles: Vec<String> = vec![];
+    let mut handle_map = HashMap::new();
 
     for (i, message) in messages.iter().enumerate() {
         entries.push(SendMessageBatchRequestEntry {
@@ -275,20 +274,37 @@ fn enqueue(client: &SqsClient, messages: &Vec<Message>, destination: &str) -> Re
             ..Default::default()
         });
 
-        handles.push(match &message.receipt_handle {
+        handle_map.insert(i.to_string(), match &message.receipt_handle {
             Some(receipt_handle) => receipt_handle.to_string(),
-            None => "".to_string(),
+            None => {
+                eprintln!("Enqueue error: be able to get `ReceiptHandle`.");
+                return Err(TransfererError::Enqueue);
+            }
         });
     }
 
-    let _result = client.send_message_batch(SendMessageBatchRequest {
+    match client.send_message_batch(SendMessageBatchRequest {
         queue_url: destination.to_string(),
         entries,
     })
-    .sync()
-    .expect("Failed to send message.");
+    .sync() {
+        Ok(result) => {
+            for f in result.failed {
+                handle_map.remove(&f.id);
+            }
 
-    Ok(handles)
+            let mut handles = vec![];
+            for (_, v) in handle_map.iter() {
+                handles.push(v.to_string());
+            }
+
+            Ok(handles)
+        },
+        Err(e) => {
+            eprintln!("Enqueue error: {:?}", e);
+            Err(TransfererError::Enqueue)
+        }
+    }
 }
 
 fn delete(client: &SqsClient, handles: &Vec<String>, source: &str) -> Result<(), String> {
