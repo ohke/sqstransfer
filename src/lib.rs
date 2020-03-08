@@ -125,7 +125,14 @@ impl Transferer {
         let mut handles = vec![];
         let mut senders = vec![];
 
-        let client = SqsClient::new(region.parse().unwrap());
+        let region: rusoto_core::Region = match region.parse() {
+            Ok(region) => region,
+            Err(e) => {
+                eprintln!("Invalid region identifier: {}", region);
+                process::exit(1);
+            }
+        };
+        let client = SqsClient::new(region);
 
         for _ in 0..threads {
             let source = source.to_string();
