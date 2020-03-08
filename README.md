@@ -8,6 +8,11 @@ CLI tool that transfers Amazon SQS messages to another SQS.
 ### Binaries
 Download from [release page](https://github.com/ohke/sqstransfer/releases).
 
+### From crates.io
+```
+$ cargo install sqstransfer 
+```
+
 ## Usage
 ```
 $ sqstransfer \
