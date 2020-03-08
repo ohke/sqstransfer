@@ -114,7 +114,7 @@ pub fn run(config: &Config) {
 
 struct Transferer {
     handles: Vec<Option<JoinHandle<usize>>>,
-    senders: Vec<mpsc::Sender<Command>>,
+    senders: Vec<mpsc::Sender<TransfererCommand>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -124,7 +124,7 @@ enum TransfererError {
     Delete,
 }
 
-enum Command {
+enum TransfererCommand {
     Terminate,
 }
 
@@ -154,8 +154,11 @@ impl Transferer {
                 // TODO: async/await (rusoto 0.43.0~)
                 let mut message_count :usize = 0;
                 loop {
-                    if receiver.try_recv().is_ok() {
-                        break;
+                    match receiver.try_recv() {
+                        Ok(TransfererCommand::Terminate) => {
+                            break;
+                        },
+                        _ => {}
                     }
 
                     let n = match transfer_message(&client, &source, &destination) {
@@ -168,6 +171,7 @@ impl Transferer {
                     if n <= 0 {
                         break;
                     }
+
                     message_count += n;
                 }
 
@@ -197,7 +201,7 @@ impl Transferer {
 impl Drop for Transferer {
     fn drop(&mut self) {
         for sender in &mut self.senders {
-            let _ = sender.send(Command::Terminate);
+            let _ = sender.send(TransfererCommand::Terminate);
         }
 
         (&mut self.handles).into_iter().for_each(|h| {
